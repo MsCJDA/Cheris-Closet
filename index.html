@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cheri's Closet</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#B76E79" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<style>
+  :root { --brand:#B76E79; --ink:#222; --muted:#666; --bg:#fff; --card:#fafafa; }
+  * { box-sizing:border-box }
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;max-width:1100px;margin:0 auto;color:var(--ink)}
+  h2{color:var(--brand)}
+  .card{border:1px solid #eee;border-radius:12px;padding:12px;margin:8px 0;background:var(--card)}
+  button{padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:var(--brand);color:#fff;cursor:pointer}
+  input,select{padding:8px;border:1px solid #ddd;border-radius:8px}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+  .muted{color:var(--muted);font-size:12px}
+  img.thumb{width:100%;height:110px;object-fit:cover;background:#f5f5f5;border-radius:10px}
+  .grid{display:flex;flex-wrap:wrap;gap:10px}
+  .tile{width:180px} .tile .meta{font-size:12px} .tile .meta b{display:block}
+  pre{white-space:pre-wrap;background:#fff;border:1px dashed #ddd;padding:8px;border-radius:8px;max-height:260px;overflow:auto}
+</style>
+</head>
+<body>
+<h2>Cheri's Closet</h2>
+<div class="muted">Backend: https://white-bear-magic.onrender.com</div>
+
+<div class="row">
+  <div class="card" style="flex:1;min-width:300px">
+    <h3>Add item</h3>
+    <div class="row">
+      <input id="name" placeholder="Name (e.g., White Tee)" />
+      <select id="category">
+        <option value="top">Top</option><option value="bottom">Bottom</option><option value="shoes">Shoes</option><option value="outer">Outer</option><option value="accessory">Accessory</option>
+      </select>
+      <input id="color" placeholder="Color" />
+      <input id="style" placeholder="Style (e.g., business casual)" />
+      <input id="image" type="file" />
+      <button onclick="addItem()">Add</button>
+    </div>
+  </div>
+  <div class="card" style="flex:1;min-width:300px">
+    <h3>Upload outfit photo</h3>
+    <input id="photo" type="file" accept="image/*" />
+    <button onclick="parseOutfit()">Parse & Replicate</button>
+    <div id="detected" class="muted">No photo yet</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Wardrobe</h3>
+  <div id="wardrobe" class="grid"></div>
+</div>
+
+<div class="card">
+  <h3>Outfit from your closet</h3>
+  <pre id="outfit">—</pre>
+</div>
+
+<div class="card">
+  <h3>Shopping results</h3>
+  <div id="shop"></div>
+</div>
+
+<script>
+  const API = "https://white-bear-magic.onrender.com";
+  async function listItems(){const r=await fetch(`${API}/items/`);return r.json();}
+  async function createItem(fd){const r=await fetch(`${API}/items/`,{method:'POST',body:fd});if(!r.ok) throw new Error('Create failed');return r.json();}
+  async function getOutfitAround(id){const r=await fetch(`${API}/outfit/around/${id}`);return r.json();}
+  async function parseOutfitImage(file){const fd=new FormData();fd.append('image',file);const r=await fetch(`${API}/vision/parse_outfit`,{method:'POST',body:fd});return r.json();}
+  async function replicateFromCloset(items){const r=await fetch(`${API}/vision/replicate_from_closet`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({detected_items:items})});return r.json();}
+  async function shopSearch(q){const r=await fetch(`${API}/shop/search?q=`+encodeURIComponent(q));return r.json();}
+
+  async function refresh(){try{const items=await listItems();const wrap=document.getElementById('wardrobe');wrap.innerHTML='';items.forEach(i=>{const d=document.createElement('div');d.className='tile card';d.onclick=async()=>{const o=await getOutfitAround(i.id);document.getElementById('outfit').textContent=JSON.stringify(o,null,2);};const img = i.image_path ? `<img class="thumb" src="${API}${i.image_path}" alt="">` : '<div class="thumb"></div>';d.innerHTML = img + `<div class="meta"><b>${i.name}</b><span class="muted">${i.category} • ${i.color||''}</span></div>`;wrap.appendChild(d);});}
+  catch(e){console.error(e);alert('Failed to load items. Check CORS and API URL.');}}
+
+  async function addItem(){const fd=new FormData();fd.append('name',document.getElementById('name').value||'Untitled');fd.append('category',document.getElementById('category').value||'top');fd.append('color',document.getElementById('color').value||'');fd.append('style',document.getElementById('style').value||'any');const img=document.getElementById('image').files[0];if(img) fd.append('image',img);try{await createItem(fd);await refresh();}catch(e){alert('Upload failed. Make sure the backend URL is correct and CORS_ORIGINS allows this domain.');}}
+
+  async function parseOutfit(){const f=document.getElementById('photo').files[0];if(!f) return alert('Choose a photo first');const parsed=await parseOutfitImage(f);const items=parsed.items||[];const det=document.getElementById('detected');det.innerHTML='<h4>Detected items</h4>';items.forEach((it)=>{const btn=document.createElement('button');btn.textContent=(it.subtype||it.category||'item')+' '+(it.color||'');btn.style.marginRight='8px';btn.onclick=async()=>{const q=[it.subtype||it.category,it.color,it.pattern].filter(Boolean).join(' ');const res=await shopSearch(q);const shop=document.getElementById('shop');shop.innerHTML='';(res.results||[]).forEach(r=>{const a=document.createElement('a');a.href=r.link; a.target='_blank'; a.rel='noreferrer';a.innerHTML=`<div class="row"><img src="${r.thumbnail||''}" style="width:48px;height:48px;object-fit:cover" /><div><div style="font-size:13px;font-weight:600">${r.title}</div><div class="muted">${r.source||''} • ${r.price||''}</div></div></div>`;shop.appendChild(a);});};det.appendChild(btn);});const repl=await replicateFromCloset(items);document.getElementById('outfit').textContent=JSON.stringify(repl.outfit_from_closet||{},null,2);}
+
+  refresh();
+</script>
+</body>
+</html>
